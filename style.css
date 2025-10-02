@@ -1,11 +1,19 @@
+@font-face {
+  font-family: 'Rubik Mono One';
+  src: url('fonts/RubikMonoOne-Regular.ttf');
+}
+
 body {
-    font-family: Arial, sans-serif;
+    font-family: 'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
     margin: 0;
-    background-color: #fff;
+    background-image: linear-gradient(135deg, #ffffff, #63accc, #ffffff);
+    background-size: 500% 500%;
+    animation: waveGradient 10s ease infinite;
     color: #000;
 }
 
 .navbar {
+    font-family: 'Rubik Mono One', sans-serif;
     background-color: #007fb9;
     color: #fff;
     display: flex;
@@ -117,6 +125,20 @@ body {
 
 main {
     flex: 3;
+    background-color: #ffffff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    position: relative;
+}
+
+main::before {
+    content: '';
+    display: block;
+    height: 4px;
+    background: linear-gradient(90deg, #007bff, #63accc);
+    border-radius: 2px;
+    margin-bottom: 20px;
 }
 
 .sidebar {
@@ -176,7 +198,7 @@ main {
 .shelfie-img {
     max-width: 100%;
     height: auto;
-    max-height: 400px;
+    max-height: auto;
     border-radius: 8px;
     margin-bottom: 20px;
     box-shadow: 0 4px 10px rgba(0,0,0,0.2);
@@ -215,6 +237,9 @@ main {
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border: 2px solid;
+    border-image: linear-gradient(45deg, #007bff, #63accc) 1;
+    animation: borderGradient 5s ease infinite;
 }
 
 .card:hover {
@@ -245,6 +270,21 @@ main {
     box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     margin-bottom: 12px;
     transition: transform 0.3s ease;
+    border: 2px solid;
+    border-image: linear-gradient(45deg, #007bff, #63accc) 1;
+    animation: borderGradient 5s ease infinite;
+    position: relative;
+}
+
+.event-card::after {
+    content: '';
+    display: block;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #007bff, transparent);
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
 }
 
 .event-card:hover {
@@ -263,6 +303,25 @@ main {
 .reader {
     max-width: 800px;
     margin: 0 auto;
+    background-color: #ffffff;
+    padding: 20px;
+    border-radius: 8px;
+    border: 2px solid;
+    border-image: linear-gradient(45deg, #007bff, #63accc) 1;
+    animation: borderGradient 5s ease infinite;
+}
+
+.chapter {
+    margin-bottom: 20px;
+    position: relative;
+}
+
+.chapter::after {
+    content: '';
+    display: block;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #63accc, transparent);
+    margin-top: 20px;
 }
 
 .reader-title {
@@ -284,6 +343,83 @@ main {
     color: #007bff;
 }
 
+.reader-section .quote {
+    font-style: italic;
+    background-color: #f0f0f0;
+    padding: 10px;
+    margin: 10px 0;
+    border-left: 4px solid #007bff;
+    border-radius: 4px;
+}
+
+.book-sf .reader-title {
+    color: #007bff;
+}
+
+.book-fantasy .reader-title {
+    color: #6a11cb;
+}
+
+.book-detective .reader-title {
+    color: #d9534f;
+}
+
+.book-novel .reader-title {
+    color: #5cb85c;
+}
+
+.book-default .reader-title {
+    color: #333;
+}
+
+.submit-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    font-weight: bold;
+    transition: transform 0.3s ease;
+}
+
+.submit-btn:hover {
+    transform: translateY(-3px);
+}
+
+.submit-btn:active {
+    animation: pulse 0.3s ease;
+}
+
+.delete-btn, .edit-btn {
+    padding: 5px 10px;
+    margin: 5px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.delete-btn {
+    background-color: #d9534f;
+    color: #fff;
+}
+
+.edit-btn {
+    background-color: #5cb85c;
+    color: #fff;
+}
+
+.message-card {
+    background: #fff;
+    padding: 12px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    margin-bottom: 12px;
+    border: 2px solid;
+    border-image: linear-gradient(45deg, #007bff, #63accc) 1;
+    animation: borderGradient 5s ease infinite;
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -293,10 +429,53 @@ main {
     }
 }
 
-.error {
-    color: red;
+@keyframes borderGradient {
+    0% {
+        border-image: linear-gradient(45deg, #007bff, #63accc) 1;
+    }
+    50% {
+        border-image: linear-gradient(45deg, #63accc, #007bff) 1;
+    }
+    100% {
+        border-image: linear-gradient(45deg, #007bff, #63accc) 1;
+    }
 }
 
-.ok {
-    color: green;
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+@keyframes waveGradient {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body {
+        animation: none;
+        background-image: none;
+        background-color: #ffffff;
+    }
+    .card, .event-card, .reader, .message-card {
+        animation: none;
+        border: 2px solid #007bff;
+    }
+    .submit-btn:active {
+        animation: none;
+    }
 }

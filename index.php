@@ -1,5 +1,6 @@
 <?php
-//require 'db.php'; // подключаем базу
+session_start(); // Начинаем сессию для авторизации - для корректной работы в хосте выключить
+require 'db.php'; // подключаем базу - для корректной работы в хосте выключить
 
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -8,6 +9,8 @@ error_reporting(E_ALL);
 define('UPLOAD_DIR', __DIR__ . '/uploads');
 define('BOOKS_DIR', __DIR__ . '/books');
 define('DATA_DIR', __DIR__ . '/data');
+define('PHOTO_DIR', __DIR__ . '/photo');
+define('FONTS_DIR', __DIR__ . '/fonts');
 define('ADMIN_PASS', '12345'); // пароль администратора (оставлен для совместимости)
 
 function safe($s) {
@@ -18,6 +21,8 @@ function safe($s) {
 if (!is_dir(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0755, true);
 if (!is_dir(BOOKS_DIR)) mkdir(BOOKS_DIR, 0755, true);
 if (!is_dir(DATA_DIR)) mkdir(DATA_DIR, 0755, true);
+if (!is_dir(PHOTO_DIR)) mkdir(PHOTO_DIR, 0755, true);
+if (!is_dir(FONTS_DIR)) mkdir(FONTS_DIR, 0755, true);
 
 // Файл с событиями
 $events_file = DATA_DIR . '/events.json';
@@ -27,6 +32,13 @@ if (!file_exists($events_file)) {
         ['id' => 2, 'title' => 'Выставка студенческих работ', 'date' => date('Y-m-d', strtotime('+30 days')), 'desc' => '...']
     ];
     file_put_contents($events_file, json_encode($sample, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+// Обработка logout
+if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+    session_destroy();
+    header('Location: ?page=home');
+    exit;
 }
 
 // === Обработка формы контакта ===
@@ -39,19 +51,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'conta
     if ($name === '' || $message === '') {
         $error = 'Имя и сообщение обязательны.';
     } else {
-        $msgFile = DATA_DIR . '/messages.json';
-        if (!file_exists($msgFile)) {
-            file_put_contents($msgFile, json_encode([], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        try {
+            $stmt = $pdo->prepare("INSERT INTO messages (name, email, message) VALUES (?, ?, ?)");
+            $stmt->execute([$name, $email, $message]);
+            $ok = 'Сообщение сохранено.';
+        } catch (PDOException $e) {
+            $error = 'Ошибка базы данных: ' . safe($e->getMessage());
         }
-        $all = json_decode(file_get_contents($msgFile), true) ?: [];
-        $all[] = [
-            'time' => date('c'),
-            'name' => $name,
-            'email' => $email,
-            'message' => $message
-        ];
-        file_put_contents($msgFile, json_encode($all, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-        $ok = 'Сообщение сохранено.';
+    }
+}
+
+// === Обработка удаления сообщений (админ) ===
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_message' && isset($_SESSION['role']) && $_SESSION['role'] === 'admin') {
+    $message_id = $_POST['message_id'] ?? 0;
+    try {
+        $stmt = $pdo->prepare("DELETE FROM messages WHERE id = ?");
+        $stmt->execute([$message_id]);
+        $ok = 'Сообщение удалено.';
+    } catch (PDOException $e) {
+        $error = 'Ошибка удаления: ' . safe($e->getMessage());
+    }
+}
+
+// === Обработка редактирования сообщений (админ) ===
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_message' && isset($_SESSION['role']) && $_SESSION['role'] === 'admin') {
+    $message_id = $_POST['message_id'] ?? 0;
+    $name = trim($_POST['name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $message = trim($_POST['message'] ?? '');
+    if ($name === '' || $message === '') {
+        $error = 'Имя и сообщение обязательны.';
+    } else {
+        try {
+            $stmt = $pdo->prepare("UPDATE messages SET name = ?, email = ?, message = ? WHERE id = ?");
+            $stmt->execute([$name, $email, $message, $message_id]);
+            $ok = 'Сообщение обновлено.';
+        } catch (PDOException $e) {
+            $error = 'Ошибка редактирования: ' . safe($e->getMessage());
+        }
     }
 }
 
@@ -108,67 +145,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
     }
 }
 
-// === Обработка регистрации ===
-$reg_error = $reg_ok = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'register') {
-    $login = trim($_POST['login'] ?? '');
-    $pass = trim($_POST['password'] ?? '');
-    $pass_confirm = trim($_POST['password_confirm'] ?? '');
-
-    if ($login === '' || $pass === '') {
-        $reg_error = 'Логин и пароль обязательны.';
-    } elseif (strlen($login) < 3 || strlen($login) > 50 || !preg_match('/^[a-zA-Z0-9_]+$/', $login)) {
-        $reg_error = 'Логин должен быть от 3 до 50 символов и содержать только буквы, цифры или подчеркивания.';
-    } elseif (strlen($pass) < 6) {
-        $reg_error = 'Пароль должен содержать минимум 6 символов.';
-    } elseif ($pass !== $pass_confirm) {
-        $reg_error = 'Пароли не совпадают.';
-    } else {
-        try {
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE login = ?");
-            $stmt->execute([$login]);
-            if ($stmt->fetch()) {
-                $reg_error = 'Такой логин уже существует.';
-            } else {
-                $hash = password_hash($pass, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("INSERT INTO users (login, password) VALUES (?, ?)");
-                $stmt->execute([$login, $hash]);
-                $reg_ok = 'Регистрация прошла успешно!';
-                header('Location: ?page=login');
-                exit;
-            }
-        } catch (PDOException $e) {
-            $reg_error = 'Ошибка базы данных: ' . safe($e->getMessage());
-        }
-    }
-}
-
-// === Обработка входа ===
-$login_error = $login_ok = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'login') {
-    $login = trim($_POST['login'] ?? '');
-    $pass = trim($_POST['password'] ?? '');
-
-    if ($login === '' || $pass === '') {
-        $login_error = 'Логин и пароль обязательны.';
-    } else {
-        try {
-            $stmt = $pdo->prepare("SELECT password FROM users WHERE login = ?");
-            $stmt->execute([$login]);
-            $user = $stmt->fetch();
-            if ($user && password_verify($pass, $user['password'])) {
-                $login_ok = 'Вход выполнен успешно!';
-                header('Location: ?page=home');
-                exit;
-            } else {
-                $login_error = 'Неверный логин или пароль.';
-            }
-        } catch (PDOException $e) {
-            $login_error = 'Ошибка базы данных: ' . safe($e->getMessage());
-        }
-    }
-}
-
 // Читаем события
 $events = json_decode(file_get_contents($events_file), true);
 if (json_last_error() !== JSON_ERROR_NONE) {
@@ -201,6 +177,14 @@ foreach (scandir(BOOKS_DIR) as $f) {
 
 // Определяем текущую страницу
 $page = $_GET['page'] ?? 'home';
+
+// Защита страниц
+if ($page === 'admin' && (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin')) {
+    $page = 'access_denied';
+} elseif ($page === 'reader' && !isset($_SESSION['user_id'])) {
+    header('Location: ?page=login');
+    exit;
+}
 ?>
 
 <!doctype html>
@@ -220,9 +204,15 @@ $page = $_GET['page'] ?? 'home';
             <a href="?page=gallery"><?php echo file_exists("photo/gallery.svg") ? '<img src="photo/'.rawurlencode('gallery.svg').'" alt="Галерея" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Галерея</a>
             <a href="?page=events"><?php echo file_exists("photo/event.svg") ? '<img src="photo/'.rawurlencode('event.svg').'" alt="События" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> События</a>
             <a href="?page=contact"><?php echo file_exists("photo/contact.svg") ? '<img src="photo/'.rawurlencode('contact.svg').'" alt="Контакты" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Контакты</a>
+            <a href="?page=messages"><?php echo file_exists("photo/messages.svg") ? '<img src="photo/'.rawurlencode('messages.svg').'" alt="Сообщения" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Сообщения</a>
             <a href="?page=admin"><?php echo file_exists("photo/admin.svg") ? '<img src="photo/'.rawurlencode('admin.svg').'" alt="Админка" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Админка</a>
-            <a href="?page=register"><?php echo file_exists("photo/register_icon.svg") ? '<img src="photo/'.rawurlencode('register_icon.svg').'" alt="Регистрация" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Регистрация</a>
-            <a href="?page=login"><?php echo file_exists("photo/login.svg") ? '<img src="photo/'.rawurlencode('login.svg').'" alt="Вход" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Вход</a>
+            <?php if (isset($_SESSION['user_id'])): ?>
+                <span>Привет, <?php echo safe($_SESSION['login']); ?> (<?php echo safe($_SESSION['role']); ?>)</span>
+                <a href="?action=logout"><?php echo file_exists("photo/logout.svg") ? '<img src="photo/'.rawurlencode('logout.svg').'" alt="Выход" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Выход</a>
+            <?php else: ?>
+                <a href="?page=register"><?php echo file_exists("photo/register_icon.svg") ? '<img src="photo/'.rawurlencode('register_icon.svg').'" alt="Регистрация" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Регистрация</a>
+                <a href="?page=login"><?php echo file_exists("photo/login.svg") ? '<img src="photo/'.rawurlencode('login.svg').'" alt="Вход" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Вход</a>
+            <?php endif; ?>
             <a href="?page=reader"><?php echo file_exists("photo/reader.svg") ? '<img src="photo/'.rawurlencode('reader.svg').'" alt="Читалка" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Читалка</a>
         </div>
         <div class="navbar-toggle" onclick="toggleMenu()">
@@ -339,29 +329,44 @@ $page = $_GET['page'] ?? 'home';
                     <input name="name" placeholder="Ваше имя" value="<?php echo safe($name ?? ''); ?>" required>
                     <input name="email" placeholder="Email" value="<?php echo safe($email ?? ''); ?>">
                     <textarea name="message" placeholder="Сообщение" required><?php echo safe($message ?? ''); ?></textarea>
-                    <button type="submit">Отправить</button>
+                    <button type="submit" class="submit-btn">Отправить</button>
                 </form>
 
-            <?php elseif ($page === 'admin'): ?>
+            <?php elseif ($page === 'messages'): ?>
                 <h1>Сообщения</h1>
                 <?php
-                $msgFile = DATA_DIR . '/messages.json';
-                if (file_exists($msgFile)) {
-                    $msgs = json_decode(file_get_contents($msgFile), true);
-                    if (json_last_error() !== JSON_ERROR_NONE) {
-                        echo "Ошибка чтения сообщений.";
-                    } elseif (empty($msgs)) {
-                        echo "Сообщений нет.";
-                    } else {
-                        foreach ($msgs as $m) {
-                            echo "<div><strong>" . safe($m['name']) . "</strong> (" . safe($m['email']) . ")<br>";
-                            echo safe($m['message']) . "<br><small>" . safe($m['time']) . "</small></div><hr>";
-                        }
-                    }
+                $stmt = $pdo->query("SELECT id, name, email, message, created_at FROM messages ORDER BY created_at DESC");
+                $msgs = $stmt->fetchAll();
+                if (empty($msgs)) {
+                    echo "<p>Сообщений нет.</p>";
                 } else {
-                    echo "Сообщений нет.";
+                    foreach ($msgs as $m) {
+                        echo "<div class='message-card'>";
+                        echo "<strong>" . safe($m['name']) . "</strong> (" . safe($m['email']) . ")<br>";
+                        echo safe($m['message']) . "<br><small>" . safe($m['created_at']) . "</small>";
+                        if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin') {
+                            echo "<form method='post' style='display:inline;'>";
+                            echo "<input type='hidden' name='action' value='delete_message'>";
+                            echo "<input type='hidden' name='message_id' value='" . $m['id'] . "'>";
+                            echo "<button type='submit' class='delete-btn'>Удалить</button>";
+                            echo "</form>";
+                            echo "<form method='post' style='display:inline;'>";
+                            echo "<input type='hidden' name='action' value='edit_message'>";
+                            echo "<input type='hidden' name='message_id' value='" . $m['id'] . "'>";
+                            echo "<input name='name' value='" . safe($m['name']) . "' required>";
+                            echo "<input name='email' value='" . safe($m['email']) . "'>";
+                            echo "<textarea name='message' required>" . safe($m['message']) . "</textarea>";
+                            echo "<button type='submit' class='edit-btn'>Изменить</button>";
+                            echo "</form>";
+                        }
+                        echo "</div>";
+                    }
                 }
                 ?>
+
+            <?php elseif ($page === 'admin'): ?>
+                <h1>Админ-панель</h1>
+                <p>Добро пожаловать, администратор! Здесь вы можете управлять контентом.</p>
 
             <?php elseif ($page === 'reader'): ?>
                 <h1>Читалка</h1>
@@ -372,7 +377,7 @@ $page = $_GET['page'] ?? 'home';
                 <form method="post" enctype="multipart/form-data">
                     <input type="hidden" name="action" value="upload_fb2">
                     <input type="file" name="fb2" accept=".fb2" required>
-                    <button type="submit">Загрузить</button>
+                    <button type="submit" class="submit-btn">Загрузить</button>
                 </form>
                 <h3>Список книг</h3>
                 <?php if (empty($books)): ?>
@@ -392,16 +397,27 @@ $page = $_GET['page'] ?? 'home';
                         if ($xml === false) {
                             echo '<div class="error">Ошибка чтения файла FB2.</div>';
                         } else {
-                            echo '<div class="reader">';
+                            // Извлечение жанра для кастомных стилей
+                            $genre = strtolower((string)($xml->description->{'title-info'}->genre ?? 'default'));
+                            $book_class = 'book-' . (in_array($genre, ['sf', 'fantasy', 'detective', 'novel']) ? $genre : 'default');
+                            echo '<div class="reader ' . safe($book_class) . '">';
                             foreach ($xml->body as $body) {
-                                foreach ($body->section as $section) {
-                                    if (isset($section->title)) {
-                                        echo '<h3 class="reader-title">' . safe((string)$section->title->p) . '</h3>';
+                                foreach ($body->section as $index => $section) {
+                                    echo '<div class="chapter">';
+                                    if (isset($section->title->p)) {
+                                        echo '<h3 class="reader-title">Глава ' . ((int)$index + 1) . ': ' . safe((string)$section->title->p) . '</h3>';
+                                    } else {
+                                        echo '<h3 class="reader-title">Глава ' . ((int)$index + 1) . '</h3>';
                                     }
                                     echo '<div class="reader-section">';
-                                    foreach ($section->p as $paragraph) {
-                                        echo '<p>' . safe((string)$paragraph) . '</p>';
+                                    foreach ($section->children() as $element) {
+                                        if ($element->getName() === 'p') {
+                                            echo '<p>' . safe((string)$element) . '</p>';
+                                        } elseif ($element->getName() === 'quote') {
+                                            echo '<blockquote class="quote">' . safe((string)$element) . '</blockquote>';
+                                        }
                                     }
+                                    echo '</div>';
                                     echo '</div>';
                                 }
                             }
@@ -413,6 +429,10 @@ $page = $_GET['page'] ?? 'home';
                 }
                 ?>
 
+            <?php elseif ($page === 'access_denied'): ?>
+                <h1>Доступ запрещен</h1>
+                <p>Эта страница доступна только для администраторов.</p>
+
             <?php else: ?>
                 <h1>Страница не найдена</h1>
             <?php endif; ?>
@@ -423,7 +443,7 @@ $page = $_GET['page'] ?? 'home';
                 <h3>Поиск по сайту</h3>
                 <form method="get" action="?page=events">
                     <input name="q" placeholder="Поиск..." value="<?php echo safe($q ?? ''); ?>">
-                    <button>Искать</button>
+                    <button class="submit-btn">Искать</button>
                 </form>
             </div>
             <div class="widget">
