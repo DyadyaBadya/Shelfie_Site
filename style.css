@@ -480,26 +480,36 @@ main::before {
     }
 }
 
+.reader-container {
+    max-width: auto;
+    margin: 20px auto;
+    padding: 20px;
+    background: #fff;
+    border-radius: 12px;
+    border: 3px solid;
+    border-image: linear-gradient(45deg, #007bff, #63accc) 1;
+    animation: borderGradient 5s ease infinite;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+
+/* Обложка */
 .reader-cover {
-    max-width: 200px;
+    max-width: 220px;
     display: block;
-    margin: 0 auto 10px;
-    border: 2px solid #007bff;
+    margin: 0 auto 20px;
     border-radius: 8px;
+    border: 2px solid #007bff;
+    padding: 4px;
+    background: #fafafa;
     animation: fadeIn 0.5s ease;
 }
 
-.reader-genre {
-    text-align: center;
-    font-style: italic;
-    color: #555;
-    margin-bottom: 20px;
-    padding: 5px;
-    background-color: #f8f9fa;
-    border-radius: 4px;
-}
-
-.reader-container {
-    max-width: 800px;
-    margin: 20px auto;
+/* Основной текст */
+.reader-content {
+    background: #ffffff;
+    border-radius: 8px;
+    border: 2px solid #63accc;
+    padding: 20px;
+    line-height: 1.6;
+    animation: fadeIn 0.8s ease;
 }

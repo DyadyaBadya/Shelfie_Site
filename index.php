@@ -307,7 +307,7 @@ if ($page === 'admin' && (!isset($_SESSION['role']) || $_SESSION['role'] !== 'ad
                     <?php else: ?>
                         <p>[Изображение полки не найдено]</p>
                     <?php endif; ?>
-                    <a href="?page=reader" class="shelfie-btn">Перейти к книгам</a>
+                    <br><a href="?page=reader" class="shelfie-btn">Перейти к книгам</a>
                 </div>
 
             <?php elseif ($page === 'register'): ?>
@@ -481,59 +481,185 @@ if ($page === 'admin' && (!isset($_SESSION['role']) || $_SESSION['role'] !== 'ad
                             if ($xml === false) {
                                 echo '<div class="error">Ошибка чтения файла FB2.</div>';
                             } else {
-                                // Извлечение обложки
+                                // === Извлечение обложки (замена старого блока) ===
                                 $cover_image = '';
                                 $cover_type = '';
-                                if (isset($xml->description->{'title-info'}->coverpage->image)) {
-                                    $cover_id = ltrim((string)$xml->description->{'title-info'}->coverpage->image['l:href'], '#');
-                                    $binary = $xml->xpath("//binary[@id='$cover_id']");
-                                    if ($binary && isset($binary[0]['content-type'])) {
-                                        $cover_type = (string)$binary[0]['content-type'];
-                                        $cover_data = base64_decode((string)$binary[0]);
-                                        $cover_image = 'data:' . $cover_type . ';base64,' . base64_encode($cover_data);
+
+                                /* Регистрируем пространство имён FB2 (default namespace) под префиксом fb,
+                                чтобы xpath мог находить элементы типа fb:binary */
+                                $namespaces = $xml->getDocNamespaces(true);
+                                $fb_ns = $namespaces[''] ?? 'http://www.gribuser.ru/xml/fictionbook/2.0';
+                                $xml->registerXPathNamespace('fb', $fb_ns);
+
+                                // Ищем тег <image> внутри coverpage (учитывая namespace)
+                                $imageNodes = $xml->xpath('//fb:coverpage/fb:image | //fb:title-info/fb:coverpage/fb:image | //fb:description/fb:title-info/fb:coverpage/fb:image');
+
+                                if (!empty($imageNodes)) {
+                                    $imageNode = $imageNodes[0];
+
+                                    // Попытка получить l:href / xlink:href или обычный href
+                                    $cover_id = '';
+                                    $xlinkAttrs = $imageNode->attributes('http://www.w3.org/1999/xlink');
+                                    if (isset($xlinkAttrs['href'])) {
+                                        $cover_id = ltrim((string)$xlinkAttrs['href'], '#');
+                                    } else {
+                                        $plainAttrs = $imageNode->attributes();
+                                        if (isset($plainAttrs['href'])) {
+                                            $cover_id = ltrim((string)$plainAttrs['href'], '#');
+                                        } elseif (isset($plainAttrs['l:href'])) {
+                                            $cover_id = ltrim((string)$plainAttrs['l:href'], '#');
+                                        }
                                     }
+
+                                    if ($cover_id !== '') {
+                                        // Ищем binary с учётом namespace (fb:binary)
+                                        $binaryNodes = $xml->xpath("//fb:binary[@id='$cover_id']");
+                                        if ($binaryNodes && isset($binaryNodes[0])) {
+                                            $binaryNode = $binaryNodes[0];
+                                            $cover_type = (string)$binaryNode['content-type'] ?: 'image/jpeg';
+
+                                            // Убираем пробелы/переносы и проверяем base64
+                                            $b64 = preg_replace('/\s+/', '', (string)$binaryNode);
+                                            if ($b64 !== '' && base64_decode($b64, true) !== false) {
+                                                // Используем data:URI — браузер отобразит картинку напрямую
+                                                $cover_image = 'data:' . $cover_type . ';base64,' . $b64;
+                                            } else {
+                                                echo '<div class="error">Ошибка: неверные base64-данные для обложки (id="' . safe($cover_id) . '").</div>';
+                                            }
+                                        } else {
+                                            // Попробуем внешний файл (например, если в ссылке указано cover.jpg)
+                                            $cover_filename = basename($cover_id);
+                                            if (file_exists(PHOTO_DIR . '/' . $cover_filename)) {
+                                                $cover_image = 'photo/' . $cover_filename;
+                                                $cover_type = mime_content_type(__DIR__ . '/' . $cover_image);
+                                            } elseif (file_exists(UPLOAD_DIR . '/' . $cover_filename)) {
+                                                $cover_image = 'uploads/' . $cover_filename;
+                                                $cover_type = mime_content_type(__DIR__ . '/' . $cover_image);
+                                            } else {
+                                                echo '<div class="error">Ошибка: Binary с id="' . safe($cover_id) . '" не найден и внешний файл также отсутствует.</div>';
+                                            }
+                                        }
+                                    } else {
+                                        echo '<div class="error">Ошибка: не найден атрибут href в теге &lt;image&gt;.</div>';
+                                    }
+                                } else {
+                                    echo '<div class="error">Ошибка: Тег coverpage/image отсутствует.</div>';
                                 }
 
-                                // Извлечение жанров
-                                $genres = [];
-                                foreach ($xml->description->{'title-info'}->genre as $genreTag) {
-                                    $genre = strtolower((string)$genreTag);
-                                    $genres[] = $genreTranslations[$genre] ?? $genreTranslations['default'];
-                                }
-                                $genresStr = implode(', ', $genres);
-
+                                // Показ обложки (единожды)
                                 echo '<div class="reader-container">';
                                 if ($cover_image) {
                                     echo '<img src="' . $cover_image . '" alt="Обложка книги" class="reader-cover">';
                                 } else {
-                                    echo '<p>Обложка отсутствует</p>';
+                                    echo '<div class="reader-cover-placeholder">Обложка отсутствует</div>';
                                 }
-                                echo '<div class="reader-genre">Жанр: ' . safe($genresStr) . '</div>';
+                                echo '</div>';
+                                // === Конец блока обложки ===
 
-                                $book_class = 'book-' . (in_array($genres[0] ?? 'default', ['sf_action', 'sf_litrpg', 'network_literature', 'sf_heroic', 'other', 'sf_epic']) ? $genres[0] : 'default');
-                                echo '<div class="reader ' . safe($book_class) . '">';
-                                foreach ($xml->body as $body) {
-                                    foreach ($body->section as $index => $section) {
-                                        echo '<div class="chapter">';
-                                        if (isset($section->title->p)) {
-                                            echo '<h3 class="reader-title">'.'' . safe((string)$section->title->p) . '</h3>';
-                                        } else {
-                                            echo '<h3 class="reader-title">'.'</h3>';
+                                function renderNode($node, $ns) {
+                                $html = '';
+
+                                switch ($node->getName()) {
+                                    case 'section':
+                                        // Рекурсивный вывод секции
+                                        $html .= '<div class="fb2-section">';
+                                        foreach ($node->children($ns) as $child) {
+                                            $html .= renderNode($child, $ns);
                                         }
-                                        echo '<div class="reader-section">';
-                                        foreach ($section->children() as $element) {
-                                            if ($element->getName() === 'p') {
-                                                echo '<p>' . safe((string)$element) . '</p>';
-                                            } elseif ($element->getName() === 'quote') {
-                                                echo '<blockquote class="quote">' . safe((string)$element) . '</blockquote>';
+                                        $html .= '</div>';
+                                        break;
+
+                                    case 'title':
+                                        $titleText = '';
+                                        foreach ($node->children($ns) as $child) {
+                                            if ($child->getName() === 'p') {
+                                                $titleText .= (string)$child . ' ';
                                             }
                                         }
-                                        echo '</div>';
+                                        $html .= '<h2 class="fb2-title">' . htmlspecialchars(trim($titleText)) . '</h2>';
+                                        break;
+
+                                    case 'subtitle':
+                                        $html .= '<h3 class="fb2-subtitle">' . htmlspecialchars((string)$node) . '</h3>';
+                                        break;
+
+                                    case 'p':
+                                        $html .= '<p class="fb2-p">' . htmlspecialchars((string)$node) . '</p>';
+                                        break;
+
+                                    case 'empty-line':
+                                        $html .= '<br>';
+                                        break;
+
+                                    case 'epigraph':
+                                        $html .= '<blockquote class="fb2-epigraph">';
+                                        foreach ($node->children($ns) as $child) {
+                                            $html .= renderNode($child, $ns);
+                                        }
+                                        $html .= '</blockquote>';
+                                        break;
+
+                                    case 'poem':
+                                        $html .= '<div class="fb2-poem">';
+                                        foreach ($node->children($ns) as $child) {
+                                            $html .= renderNode($child, $ns);
+                                        }
+                                        $html .= '</div>';
+                                        break;
+
+                                    case 'stanza':
+                                        $html .= '<div class="fb2-stanza">';
+                                        foreach ($node->children($ns) as $child) {
+                                            $html .= renderNode($child, $ns);
+                                        }
+                                        $html .= '</div>';
+                                        break;
+
+                                    case 'v': // строка стихотворения
+                                        $html .= '<div class="fb2-verse">' . htmlspecialchars((string)$node) . '</div>';
+                                        break;
+
+                                    default:
+                                        // Если это текстовый узел
+                                        if (trim((string)$node) !== '') {
+                                            $html .= htmlspecialchars((string)$node);
+                                        }
+                                }
+
+                                return $html;
+                            }
+
+                            // === Вывод содержимого книги ===
+                            $fb_ns = 'http://www.gribuser.ru/xml/fictionbook/2.0';
+
+                            // Основное тело (без @name или с @name="main")
+                            $mainBody = $xml->xpath('//fb:body[not(@name) or @name="main"]');
+                            if ($mainBody) {
+                                foreach ($mainBody as $body) {
+                                    echo '<div class="fb2-body">';
+                                    foreach ($body->children($fb_ns) as $child) {
+                                        echo renderNode($child, $fb_ns);
+                                    }
+                                    echo '</div>';
+                                }
+                            }
+
+                            // Примечания (body name="notes")
+                            $notesBody = $xml->xpath('//fb:body[@name="notes"]');
+                            if ($notesBody) {
+                                echo '<div class="fb2-notes"><h3>Примечания</h3>';
+                                foreach ($notesBody[0]->children($fb_ns) as $section) {
+                                    if ($section->getName() === 'section') {
+                                        $id = (string)$section['id'];
+                                        echo '<div id="note-' . safe($id) . '" class="fb2-note">';
+                                        foreach ($section->children($fb_ns) as $c) {
+                                            echo renderNode($c, $fb_ns);
+                                        }
                                         echo '</div>';
                                     }
                                 }
                                 echo '</div>';
-                                echo '</div>';
+                            }
                             }
                         } catch (Exception $e) {
                             echo '<div class="error">Ошибка парсинга: ' . safe($e->getMessage()) . '</div>';
