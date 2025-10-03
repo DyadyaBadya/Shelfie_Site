@@ -34,15 +34,88 @@ if (!file_exists($events_file)) {
     file_put_contents($events_file, json_encode($sample, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 }
 
-// Обработка logout
+// Инициализация переменных для форм
+$reg_error = '';
+$reg_ok = '';
+$login_error = '';
+$login_ok = '';
+$error = $ok = '';
+
+// === Обработка выхода ===
 if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+    $_SESSION = [];
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000,
+            $params["path"], $params["domain"],
+            $params["secure"], $params["httponly"]
+        );
+    }
     session_destroy();
+    if (ob_get_length()) {
+        ob_end_clean();
+    }
     header('Location: ?page=home');
     exit;
 }
 
+// === Обработка формы регистрации ===
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'register') {
+    $login = trim($_POST['login'] ?? '');
+    $password = $_POST['password'] ?? '';
+    $password_confirm = $_POST['password_confirm'] ?? '';
+
+    if ($login === '' || $password === '' || $password_confirm === '') {
+        $reg_error = 'Все поля обязательны.';
+    } elseif ($password !== $password_confirm) {
+        $reg_error = 'Пароли не совпадают.';
+    } else {
+        try {
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE login = ?");
+            $stmt->execute([$login]);
+            if ($stmt->fetch()) {
+                $reg_error = 'Логин уже занят.';
+            } else {
+                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+                $stmt = $pdo->prepare("INSERT INTO users (login, password, role) VALUES (?, ?, 'user')");
+                $stmt->execute([$login, $hashed_password]);
+                $reg_ok = 'Регистрация успешна. Войдите в аккаунт.';
+            }
+        } catch (PDOException $e) {
+            $reg_error = 'Ошибка базы данных: ' . safe($e->getMessage());
+        }
+    }
+}
+
+// === Обработка формы входа ===
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'login') {
+    $login = trim($_POST['login'] ?? '');
+    $password = $_POST['password'] ?? '';
+
+    if ($login === '' || $password === '') {
+        $login_error = 'Логин и пароль обязательны.';
+    } else {
+        try {
+            $stmt = $pdo->prepare("SELECT id, login, password, role FROM users WHERE login = ?");
+            $stmt->execute([$login]);
+            $user = $stmt->fetch();
+            if ($user && password_verify($password, $user['password'])) {
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['login'] = $user['login'];
+                $_SESSION['role'] = $user['role'];
+                $login_ok = 'Вход успешен.';
+                header('Location: ?page=home');
+                exit;
+            } else {
+                $login_error = 'Неверный логин или пароль.';
+            }
+        } catch (PDOException $e) {
+            $login_error = 'Ошибка базы данных: ' . safe($e->getMessage());
+        }
+    }
+}
+
 // === Обработка формы контакта ===
-$error = $ok = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'contact') {
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
@@ -390,43 +463,82 @@ if ($page === 'admin' && (!isset($_SESSION['role']) || $_SESSION['role'] !== 'ad
                     </ul>
                 <?php endif; ?>
                 <?php
-                if (isset($_GET['file']) && in_array($_GET['file'], $books)) {
-                    $file = BOOKS_DIR . '/' . $_GET['file'];
-                    try {
-                        $xml = simplexml_load_file($file);
-                        if ($xml === false) {
-                            echo '<div class="error">Ошибка чтения файла FB2.</div>';
-                        } else {
-                            // Извлечение жанра для кастомных стилей
-                            $genre = strtolower((string)($xml->description->{'title-info'}->genre ?? 'default'));
-                            $book_class = 'book-' . (in_array($genre, ['sf', 'fantasy', 'detective', 'novel']) ? $genre : 'default');
-                            echo '<div class="reader ' . safe($book_class) . '">';
-                            foreach ($xml->body as $body) {
-                                foreach ($body->section as $index => $section) {
-                                    echo '<div class="chapter">';
-                                    if (isset($section->title->p)) {
-                                        echo '<h3 class="reader-title">Глава ' . ((int)$index + 1) . ': ' . safe((string)$section->title->p) . '</h3>';
-                                    } else {
-                                        echo '<h3 class="reader-title">Глава ' . ((int)$index + 1) . '</h3>';
+                $genreTranslations = [
+                    'sf_action' => 'Научная фантастика: Экшн',
+                    'sf_litrpg' => 'ЛитRPG',
+                    'network_literature' => 'Сетевая литература',
+                    'sf_heroic' => 'Героическая фантастика',
+                    'other' => 'Другое',
+                    'sf_epic' => 'Эпическая фантастика',
+                    // Добавьте больше жанров по необходимости
+                    'default' => 'Неизвестный жанр'
+                ];
+
+                    if (isset($_GET['file']) && in_array($_GET['file'], $books)) {
+                        $file = BOOKS_DIR . '/' . $_GET['file'];
+                        try {
+                            $xml = simplexml_load_file($file);
+                            if ($xml === false) {
+                                echo '<div class="error">Ошибка чтения файла FB2.</div>';
+                            } else {
+                                // Извлечение обложки
+                                $cover_image = '';
+                                $cover_type = '';
+                                if (isset($xml->description->{'title-info'}->coverpage->image)) {
+                                    $cover_id = ltrim((string)$xml->description->{'title-info'}->coverpage->image['l:href'], '#');
+                                    $binary = $xml->xpath("//binary[@id='$cover_id']");
+                                    if ($binary && isset($binary[0]['content-type'])) {
+                                        $cover_type = (string)$binary[0]['content-type'];
+                                        $cover_data = base64_decode((string)$binary[0]);
+                                        $cover_image = 'data:' . $cover_type . ';base64,' . base64_encode($cover_data);
                                     }
-                                    echo '<div class="reader-section">';
-                                    foreach ($section->children() as $element) {
-                                        if ($element->getName() === 'p') {
-                                            echo '<p>' . safe((string)$element) . '</p>';
-                                        } elseif ($element->getName() === 'quote') {
-                                            echo '<blockquote class="quote">' . safe((string)$element) . '</blockquote>';
-                                        }
-                                    }
-                                    echo '</div>';
-                                    echo '</div>';
                                 }
+
+                                // Извлечение жанров
+                                $genres = [];
+                                foreach ($xml->description->{'title-info'}->genre as $genreTag) {
+                                    $genre = strtolower((string)$genreTag);
+                                    $genres[] = $genreTranslations[$genre] ?? $genreTranslations['default'];
+                                }
+                                $genresStr = implode(', ', $genres);
+
+                                echo '<div class="reader-container">';
+                                if ($cover_image) {
+                                    echo '<img src="' . $cover_image . '" alt="Обложка книги" class="reader-cover">';
+                                } else {
+                                    echo '<p>Обложка отсутствует</p>';
+                                }
+                                echo '<div class="reader-genre">Жанр: ' . safe($genresStr) . '</div>';
+
+                                $book_class = 'book-' . (in_array($genres[0] ?? 'default', ['sf_action', 'sf_litrpg', 'network_literature', 'sf_heroic', 'other', 'sf_epic']) ? $genres[0] : 'default');
+                                echo '<div class="reader ' . safe($book_class) . '">';
+                                foreach ($xml->body as $body) {
+                                    foreach ($body->section as $index => $section) {
+                                        echo '<div class="chapter">';
+                                        if (isset($section->title->p)) {
+                                            echo '<h3 class="reader-title">'.'' . safe((string)$section->title->p) . '</h3>';
+                                        } else {
+                                            echo '<h3 class="reader-title">'.'</h3>';
+                                        }
+                                        echo '<div class="reader-section">';
+                                        foreach ($section->children() as $element) {
+                                            if ($element->getName() === 'p') {
+                                                echo '<p>' . safe((string)$element) . '</p>';
+                                            } elseif ($element->getName() === 'quote') {
+                                                echo '<blockquote class="quote">' . safe((string)$element) . '</blockquote>';
+                                            }
+                                        }
+                                        echo '</div>';
+                                        echo '</div>';
+                                    }
+                                }
+                                echo '</div>';
+                                echo '</div>';
                             }
-                            echo '</div>';
+                        } catch (Exception $e) {
+                            echo '<div class="error">Ошибка парсинга: ' . safe($e->getMessage()) . '</div>';
                         }
-                    } catch (Exception $e) {
-                        echo '<div class="error">Ошибка парсинга: ' . safe($e->getMessage()) . '</div>';
                     }
-                }
                 ?>
 
             <?php elseif ($page === 'access_denied'): ?>
