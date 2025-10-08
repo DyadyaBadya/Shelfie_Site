@@ -276,11 +276,11 @@ if ($page === 'admin' && (!isset($_SESSION['role']) || $_SESSION['role'] !== 'ad
             <a href="?page=home"><?php echo file_exists("photo/home.svg") ? '<img src="photo/'.rawurlencode('home.svg').'" alt="Главная" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Главная</a>
             <a href="?page=gallery"><?php echo file_exists("photo/gallery.svg") ? '<img src="photo/'.rawurlencode('gallery.svg').'" alt="Галерея" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Галерея</a>
             <a href="?page=events"><?php echo file_exists("photo/event.svg") ? '<img src="photo/'.rawurlencode('event.svg').'" alt="События" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> События</a>
-            <a href="?page=contact"><?php echo file_exists("photo/contact.svg") ? '<img src="photo/'.rawurlencode('contact.svg').'" alt="Контакты" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Контакты</a>
+            <a href="?page=contact"><?php echo file_exists("photo/contact.svg") ? '<img src="photo/'.rawurlencode('contact.svg').'" alt="Контакты" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Отправить сообщение</a>
             <a href="?page=messages"><?php echo file_exists("photo/messages.svg") ? '<img src="photo/'.rawurlencode('messages.svg').'" alt="Сообщения" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Сообщения</a>
             <a href="?page=admin"><?php echo file_exists("photo/admin.svg") ? '<img src="photo/'.rawurlencode('admin.svg').'" alt="Админка" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Админка</a>
             <?php if (isset($_SESSION['user_id'])): ?>
-                <span>Привет, <?php echo safe($_SESSION['login']); ?> (<?php echo safe($_SESSION['role']); ?>)</span>
+                <span>| <?php echo safe($_SESSION['login']); ?> - <?php echo safe($_SESSION['role']); ?>  |</span>
                 <a href="?action=logout"><?php echo file_exists("photo/logout.svg") ? '<img src="photo/'.rawurlencode('logout.svg').'" alt="Выход" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Выход</a>
             <?php else: ?>
                 <a href="?page=register"><?php echo file_exists("photo/register_icon.svg") ? '<img src="photo/'.rawurlencode('register_icon.svg').'" alt="Регистрация" loading="lazy" style="width: 20px; height: 20px; vertical-align: middle;">' : '[Иконка] '; ?> Регистрация</a>
@@ -302,8 +302,8 @@ if ($page === 'admin' && (!isset($_SESSION['role']) || $_SESSION['role'] !== 'ad
                 <div class="shelfie-home">
                     <h1>Shelfie</h1>
                     <p>Ваша личная библиотека для чтения и вдохновения</p>
-                    <?php if (file_exists("photo/shelfie.png")): ?>
-                        <img src="photo/<?php echo rawurlencode('shelfie.png'); ?>" alt="Книжная полка" class="shelfie-img" loading="lazy">
+                    <?php if (file_exists("photo/shelfie1.png")): ?>
+                        <img src="photo/<?php echo rawurlencode('shelfie1.png'); ?>" alt="Книжная полка" class="shelfie-img" loading="lazy">
                     <?php else: ?>
                         <p>[Изображение полки не найдено]</p>
                     <?php endif; ?>
@@ -369,7 +369,7 @@ if ($page === 'admin' && (!isset($_SESSION['role']) || $_SESSION['role'] !== 'ad
                 </form>
 
             <?php elseif ($page === 'events'): ?>
-                <h1>События колледжа</h1>
+                <h1>События сайта</h1>
                 <form method="get" action="?page=events">
                     <input type="hidden" name="page" value="events">
                     <input name="q" placeholder="Поиск событий" value="<?php echo safe($q ?? ''); ?>">
@@ -390,7 +390,7 @@ if ($page === 'admin' && (!isset($_SESSION['role']) || $_SESSION['role'] !== 'ad
                 <?php endif; ?>
 
             <?php elseif ($page === 'contact'): ?>
-                <h1>Контакты</h1>
+                <h1>Отправка сообщений</h1>
                 <?php if ($error): ?>
                     <div class="error"><?php echo safe($error); ?></div>
                 <?php endif; ?>
