@@ -1,9 +1,9 @@
 <?php
 // db.php — подключение к MySQL
-define('DB_HOST','127.0.0.1');   // или localhost
-define('DB_NAME','firstbd');         // ваша база
-define('DB_USER','root');         // ваш пользователь MySQL
-define('DB_PASS','');             // пароль, если есть
+define('DB_HOST','sql311.infinityfree.com');   // или localhost
+define('DB_NAME','if0_40064476_firstbd');         // ваша база
+define('DB_USER','if0_40064476');         // ваш пользователь MySQL
+define('DB_PASS','R89698969r');             // пароль, если есть
 
 try {
     $pdo = new PDO(
